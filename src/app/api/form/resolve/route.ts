@@ -14,13 +14,18 @@ export async function GET(req: NextRequest) {
   }
   const auth = await authFromRequest(req);
   const target = await resolveFormTarget({ auth, id });
-  const access = await evaluateAccess({ viewerAuth: auth, taskId: target.taskId });
+  // Access is governed by the head task; the appended "+data" segments are the
+  // viewer's own runtime state and aren't independently GET-able from /task, so
+  // checking the full chain would falsely 404. The full chain is still rendered.
+  const headId = target.taskId.split("+")[0];
+  const access = await evaluateAccess({ viewerAuth: auth, taskId: headId });
 
   console.log("[form/resolve]", {
     id,
     authed: !!auth,
     uid: auth?.uid ?? null,
     resolvedTaskId: target.taskId,
+    accessCheckedId: headId,
     viaItem: !!target.itemId,
     allowed: access.allowed,
     reason: access.allowed ? null : access.reason,

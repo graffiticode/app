@@ -51,6 +51,19 @@ function looksLikeFormId(id: string): boolean {
   }
 }
 
+// The "+" task-chain separator can survive the /form/{id} URL round-trip as the
+// percent-encoded "%2B" (a raw "+" in a path comes back encoded). Decode it so
+// the segments parse and the head splits — base64url segments contain no other
+// percent sequences, so this only canonicalizes the separator.
+function normalizeChainId(id: string): string {
+  if (!id.includes("%")) return id;
+  try {
+    return decodeURIComponent(id);
+  } catch {
+    return id.replace(/%2[Bb]/g, "+");
+  }
+}
+
 // Resolve a /form/{id} path segment to a renderable task id. A base64 form id
 // is passed straight through; a bare item id is resolved via the console DB —
 // first directly under the signed-in user's account (their own items), then by
@@ -62,6 +75,7 @@ export async function resolveFormTarget({
   auth: Auth | null;
   id: string;
 }): Promise<FormTarget> {
+  id = normalizeChainId(id);
   if (looksLikeFormId(id)) {
     return { taskId: id };
   }
