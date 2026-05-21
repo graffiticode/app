@@ -102,7 +102,7 @@ export function FormHarness({
   }, [createDataTask]);
 
   return (
-    <div className="relative h-screen w-screen">
+    <div className="relative h-screen w-screen overflow-hidden p-2">
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-white">
           <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-gray-900" />
