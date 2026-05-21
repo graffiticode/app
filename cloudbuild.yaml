@@ -43,6 +43,8 @@ steps:
       - '--min-instances=0'
       - '--max-instances=10'
       - '--port=8080'
+      # Server secrets sourced from Secret Manager (create these once; see README/notes).
+      - '--set-secrets=INTERNAL_API_KEY=INTERNAL_API_KEY:latest,PRIVY_APP_SECRET=PRIVY_APP_SECRET:latest'
     id: Deploy
     entrypoint: gcloud
 
@@ -58,8 +60,9 @@ substitutions:
   _TAG: latest
   _NEXT_PUBLIC_GC_API_URL: https://api.graffiticode.org
   _NEXT_PUBLIC_GC_AUTH_URL: https://auth.graffiticode.org
-  _NEXT_PUBLIC_PRIVY_APP_ID: ''
-  _NEXT_PUBLIC_FIREBASE_API_KEY: ''
+  # Public client values (Privy app id + Firebase web key are not secrets).
+  _NEXT_PUBLIC_PRIVY_APP_ID: cmom2ijrw00040cl4hd9qvjnq
+  _NEXT_PUBLIC_FIREBASE_API_KEY: AIzaSyAoVuUNi8ElnS7cn6wc3D8XExML-URLw0I
 
 tags:
   - app
