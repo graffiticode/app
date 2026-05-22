@@ -15,19 +15,25 @@ function buildSrc(taskId: string, lang: string | null, accessToken: string | nul
 
 export function FormHarness({
   taskId,
+  itemId = null,
   lang = null,
   accessToken,
 }: {
   taskId: string;
+  // Set when the viewer navigated by an item id (vs a raw task id). Item-backed
+  // forms must keep the item id in the location bar so a reload re-resolves to
+  // the item's current task; we therefore don't mint data tasks or rewrite the
+  // URL for them. Raw task ids keep capturing runtime state into the URL.
+  itemId?: string | null;
   lang?: string | null;
   accessToken: string | null;
 }) {
   const [src, setSrc] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
-  // The currently-chained task id. Runtime state changes mint a new data task
-  // and advance this ref + the URL bar, without reloading the iframe (which
-  // would discard the live form state).
+  // The currently-chained task id. For raw task ids, runtime state changes mint
+  // a new data task and advance this ref + the URL bar, without reloading the
+  // iframe (which would discard the live form state).
   const currentTaskIdRef = useRef(taskId);
   const creatingRef = useRef(false);
   const lastStateHashRef = useRef<string | null>(null);
@@ -83,12 +89,13 @@ export function FormHarness({
 
       if (msg.type === "data-updated") {
         setIsLoading(false);
-        const data = msg.data;
-        if (data) {
-          const hash = JSON.stringify(data);
+        // Only capture state into a new data task / the URL for raw task ids.
+        // Item-backed forms keep their item id in the path untouched.
+        if (!itemId && msg.data) {
+          const hash = JSON.stringify(msg.data);
           if (hash !== lastStateHashRef.current) {
             lastStateHashRef.current = hash;
-            createDataTask(data);
+            createDataTask(msg.data);
           }
         }
         return;
@@ -99,7 +106,7 @@ export function FormHarness({
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [createDataTask]);
+  }, [createDataTask, itemId]);
 
   return (
     <div className="relative h-screen w-screen overflow-hidden p-2">

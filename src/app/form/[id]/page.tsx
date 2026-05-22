@@ -11,7 +11,7 @@ type Owner = { uid?: string; email?: string } | null;
 
 type State =
   | { status: "loading" }
-  | { status: "allowed"; taskId: string; accessToken: string | null }
+  | { status: "allowed"; taskId: string; itemId: string | null; accessToken: string | null }
   | { status: "denied"; reason: "locked" | "not-found"; owner: Owner }
   | { status: "error" };
 
@@ -41,7 +41,7 @@ export default function FormByIdPage() {
       if (cancelled) return;
       const body = await res.json();
       if (body.allowed) {
-        setState({ status: "allowed", taskId: body.taskId, accessToken: token });
+        setState({ status: "allowed", taskId: body.taskId, itemId: body.itemId ?? null, accessToken: token });
       } else {
         setState({ status: "denied", reason: body.reason, owner: body.owner });
       }
@@ -63,7 +63,7 @@ export default function FormByIdPage() {
   }
 
   if (state.status === "allowed") {
-    return <FormHarness taskId={state.taskId} accessToken={state.accessToken} />;
+    return <FormHarness taskId={state.taskId} itemId={state.itemId} accessToken={state.accessToken} />;
   }
 
   if (state.status === "denied") {
