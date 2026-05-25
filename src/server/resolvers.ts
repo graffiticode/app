@@ -16,8 +16,10 @@ export type ResolvedItem = {
 // users/{ownerUid}/items/{id} and store an `id` field equal to their doc id, so
 // a collectionGroup query resolves any item without knowing the owner — and
 // without requiring the viewer to be signed in or to own it. (Needs admin
-// credentials; the `id` field has automatic single-field collection-group
-// indexing in Firestore.)
+// credentials AND an explicit COLLECTION_GROUP single-field index on `items.id`:
+// collection-group queries are NOT covered by Firestore's automatic single-field
+// indexes, so without it this query throws FAILED_PRECONDITION and every bare
+// item id fails to resolve. The index is declared in firestore.indexes.json.)
 export async function findItemById(id: string): Promise<ResolvedItem | null> {
   const db = getFirestore();
   const snap = await db.collectionGroup("items").where("id", "==", id).limit(1).get();

@@ -1,10 +1,12 @@
 "use client";
 
+import { useGraffiticodeAuth } from "@graffiticode/auth-react";
 import { SignIn } from "./SignIn";
 
 type Owner = { uid?: string; email?: string } | null;
 
 export function RequestAccess({ owner, signedIn }: { owner: Owner; signedIn: boolean }) {
+  const { signOut } = useGraffiticodeAuth();
   const subject = encodeURIComponent("Access request for a Graffiticode form");
   const body = encodeURIComponent(
     `Hi,\n\nCould you grant me access to this form?\n\n${typeof window !== "undefined" ? window.location.href : ""}`,
@@ -29,11 +31,26 @@ export function RequestAccess({ owner, signedIn }: { owner: Owner; signedIn: boo
           Ask the owner to make this form public, or to add your account id to its access list.
         </p>
       )}
-      {!signedIn && (
+      {signedIn ? (
+        // The viewer is signed in but this account lacks access — most often
+        // they're signed in with the wrong account. Signing out drops the token
+        // and re-resolves, landing on the sign-in prompt so they can come back
+        // as an account that has access.
         <div className="mt-4">
           <p className="mb-2 text-sm text-gray-600">
-            Already shared with you? Sign in to view it.
+            Signed in with the wrong account? Switch to one that has access.
           </p>
+          <button
+            type="button"
+            onClick={() => signOut()}
+            className="rounded bg-gray-900 px-4 py-2 text-white"
+          >
+            Switch account
+          </button>
+        </div>
+      ) : (
+        <div className="mt-4">
+          <p className="mb-2 text-sm text-gray-600">Already shared with you? Sign in to view it.</p>
           <SignIn label="Sign in" className="rounded bg-gray-900 px-4 py-2 text-white" />
         </div>
       )}

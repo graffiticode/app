@@ -38,11 +38,19 @@ export async function GET(req: NextRequest) {
       itemId: target.itemId ?? null,
     });
   }
+
+  // When we resolved a real item, the form provably exists, so a denial means
+  // "you can't see this" — never "no such form". Force "locked" (which the UI
+  // turns into a sign-in / switch-account prompt) instead of the dead-end 404.
+  // This matters because the api returns 404 for unauthenticated reads of a
+  // private task, which evaluateAccess would otherwise surface as "not-found".
+  const reason = target.itemId ? "locked" : access.reason;
+  const owner = access.owner ?? (target.ownerUid ? { uid: target.ownerUid } : null);
   return NextResponse.json({
     allowed: false,
     taskId: target.taskId,
-    reason: access.reason,
-    owner: access.owner ?? null,
+    reason,
+    owner,
     detail: access.detail ?? null,
   });
 }
