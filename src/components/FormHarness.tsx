@@ -37,16 +37,35 @@ export function FormHarness({
   const currentTaskIdRef = useRef(taskId);
   const creatingRef = useRef(false);
   const lastStateHashRef = useRef<string | null>(null);
+  // The task id the current iframe src reflects (starts empty so the first
+  // taskId always loads).
+  const appliedTaskIdRef = useRef<string>("");
 
   useEffect(() => {
     currentTaskIdRef.current = taskId;
   }, [taskId]);
 
+  const applyTaskId = useCallback(
+    (tid: string) => {
+      if (typeof window === "undefined") return;
+      setSrc(buildSrc(tid, lang, accessToken, window.location.origin));
+      setIsLoading(true);
+      appliedTaskIdRef.current = tid;
+    },
+    [lang, accessToken],
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") return;
-    setSrc(buildSrc(taskId, lang, accessToken, window.location.origin));
-    setIsLoading(true);
-  }, [taskId, lang, accessToken]);
+    // Only (re)load on a genuine task change. A token refresh that leaves the
+    // taskId unchanged must not reload the iframe (raw forms keep their chained
+    // runtime state in currentTaskIdRef / the URL, not the taskId prop). When
+    // the resolved task does change (e.g. the item was edited elsewhere), reload
+    // automatically.
+    if (taskId === appliedTaskIdRef.current) return;
+    lastStateHashRef.current = null;
+    applyTaskId(taskId);
+  }, [taskId, lang, accessToken, applyTaskId]);
 
   const createDataTask = useCallback(
     async (data: any) => {
@@ -83,13 +102,9 @@ export function FormHarness({
       const msg = event.data;
       if (!msg || typeof msg !== "object") return;
 
-      if (process.env.NODE_ENV === "development") {
-        console.log("[FormHarness] message", msg.type ?? Object.keys(msg));
-      }
-
       if (msg.type === "data-updated") {
         setIsLoading(false);
-        // Only capture state into a new data task / the URL for raw task ids.
+        // Raw task ids capture runtime state into a new data task / the URL.
         // Item-backed forms keep their item id in the path untouched.
         if (!itemId && msg.data) {
           const hash = JSON.stringify(msg.data);
