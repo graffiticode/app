@@ -15,6 +15,7 @@ import { useAuth } from "reactfire";
 import { signInWithCustomToken } from "firebase/auth";
 import { stripHexPrefix } from "@ethereumjs/util";
 import { client } from "./auth-client";
+import { setSsoSession } from "./sso-client";
 
 const LOGIN_COMPLETE_TIMEOUT_MS = 30_000;
 const CONNECTED_WALLET_TIMEOUT_MS = 20_000;
@@ -202,7 +203,7 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
         accountAddress,
       );
       const signature = stripHexPrefix(sigRaw);
-      const { firebaseCustomToken } = await client.ethereum.authenticate({
+      const { firebaseCustomToken, refresh_token } = await client.ethereum.authenticate({
         address,
         nonce,
         signature,
@@ -211,6 +212,7 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
       const uid = credential.user.uid;
       const idToken = await credential.user.getIdToken();
       await persistSignInEmail(uid, idToken, email);
+      await setSsoSession(refresh_token);
 
       try {
         await logout();

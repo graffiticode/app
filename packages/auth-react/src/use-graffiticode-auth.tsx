@@ -1,10 +1,11 @@
 "use client";
 
-import { createContext, useCallback, useContext } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import useSWR from "swr";
 import { useSignInWithEthereum } from "./use-ethereum";
 import { useAuth, useUser } from "reactfire";
 import { signInWithCustomToken, signOut } from "firebase/auth";
+import { setSsoSession, clearSsoSession, bootstrapSsoSession } from "./sso-client";
 
 type PendingEthereumSignup = {
   needsSignupConfirm: true;
@@ -46,8 +47,9 @@ export function GraffiticodeAuthProvider({ children }: { children: React.ReactNo
         console.warn(`User ${firebaseUser.uid} is already signed in`);
         return auth;
       }
-      const { firebaseCustomToken } = await siwe(selectedWallet);
+      const { firebaseCustomToken, refresh_token } = await siwe(selectedWallet);
       await signInWithCustomToken(auth, firebaseCustomToken);
+      await setSsoSession(refresh_token);
     },
     [firebaseUser, siwe, auth],
   );
@@ -60,8 +62,9 @@ export function GraffiticodeAuthProvider({ children }: { children: React.ReactNo
       }
       const { accountAddress, address, exists } = await connectAndCheck(selectedWallet);
       if (exists) {
-        const { firebaseCustomToken } = await signInForAddress(address, accountAddress);
+        const { firebaseCustomToken, refresh_token } = await signInForAddress(address, accountAddress);
         await signInWithCustomToken(auth, firebaseCustomToken);
+        await setSsoSession(refresh_token);
         return undefined;
       }
       return { needsSignupConfirm: true, address, accountAddress };
@@ -71,8 +74,9 @@ export function GraffiticodeAuthProvider({ children }: { children: React.ReactNo
 
   const confirmEthereumSignIn = useCallback(
     async (pending: PendingEthereumSignup) => {
-      const { firebaseCustomToken } = await signInForAddress(pending.address, pending.accountAddress);
+      const { firebaseCustomToken, refresh_token } = await signInForAddress(pending.address, pending.accountAddress);
       await signInWithCustomToken(auth, firebaseCustomToken);
+      await setSsoSession(refresh_token);
     },
     [auth, signInForAddress],
   );
@@ -88,7 +92,37 @@ export function GraffiticodeAuthProvider({ children }: { children: React.ReactNo
     };
   }
 
+  // Cross-app SSO bootstrap: when Firebase resolves with no session, try to
+  // exchange the shared .graffiticode.org refresh-token cookie for a Firebase
+  // custom token (set by a prior sign-in on a sibling app). We hold rendering
+  // until this attempt finishes so a momentarily-signed-out user doesn't see a
+  // sign-in flash before the silent sign-in lands.
+  const [bootstrapPhase, setBootstrapPhase] = useState<"pending" | "running" | "done">("pending");
+  useEffect(() => {
+    if (firebaseUserStatus === "loading") return;
+    if (firebaseUser) {
+      if (bootstrapPhase !== "done") setBootstrapPhase("done");
+      return;
+    }
+    if (bootstrapPhase !== "pending") return;
+    setBootstrapPhase("running");
+    (async () => {
+      const token = await bootstrapSsoSession();
+      if (token) {
+        try {
+          await signInWithCustomToken(auth, token);
+        } catch (err) {
+          console.error("[sso] bootstrap sign-in failed", err);
+        }
+      }
+      setBootstrapPhase("done");
+    })();
+  }, [firebaseUserStatus, firebaseUser, bootstrapPhase, auth]);
+
+  const ready = firebaseUserStatus !== "loading" && (firebaseUser != null || bootstrapPhase === "done");
+
   const handleSignOut = useCallback(async () => {
+    await clearSsoSession();
     await signOut(auth);
     if (typeof window !== "undefined") {
       window.location.href = "/";
@@ -96,7 +130,7 @@ export function GraffiticodeAuthProvider({ children }: { children: React.ReactNo
   }, [auth]);
 
   const value = {
-    loading: firebaseUserStatus === "loading",
+    loading: !ready,
     user,
     signInWithEthereum,
     beginEthereumSignIn,
@@ -106,7 +140,7 @@ export function GraffiticodeAuthProvider({ children }: { children: React.ReactNo
 
   return (
     <GraffiticodeAuthContext.Provider value={value}>
-      {firebaseUserStatus !== "loading" && children}
+      {ready && children}
     </GraffiticodeAuthContext.Provider>
   );
 }
