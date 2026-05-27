@@ -8,5 +8,6 @@ export {
 } from "./use-graffiticode-auth";
 export { useEmailSignIn } from "./use-email-signin";
 export { useSignInWithEthereum } from "./use-ethereum";
+export { useSignOut } from "./use-sign-out";
 export { client as authClient } from "./auth-client";
 export { apiFirebaseConfig } from "./firebase-config";

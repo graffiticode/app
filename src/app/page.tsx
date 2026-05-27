@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AuthLink } from "@/components/AuthLink";
 
 export default function HomePage() {
   return (
@@ -12,6 +13,7 @@ export default function HomePage() {
       <Link href="/form" className="text-blue-600 underline">
         Open form view
       </Link>
+      <AuthLink className="text-blue-600 underline" />
     </main>
   );
 }
