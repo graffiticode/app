@@ -5,15 +5,7 @@ import useSWR from "swr";
 import { useSignInWithEthereum } from "./use-ethereum";
 import { useAuth, useUser } from "reactfire";
 import { signInWithCustomToken, signOut } from "firebase/auth";
-import {
-  setSsoSession,
-  clearSsoSession,
-  bootstrapSsoSession,
-  ssoSessionPresent,
-  isSsoActive,
-  recentlyWroteSso,
-  noteSsoBootstrapped,
-} from "./sso-client";
+import { setSsoSession, clearSsoSession, bootstrapSsoSession } from "./sso-client";
 
 type PendingEthereumSignup = {
   needsSignupConfirm: true;
@@ -119,7 +111,6 @@ export function GraffiticodeAuthProvider({ children }: { children: React.ReactNo
       if (token) {
         try {
           await signInWithCustomToken(auth, token);
-          noteSsoBootstrapped();
         } catch (err) {
           console.error("[sso] bootstrap sign-in failed", err);
         }
@@ -127,43 +118,6 @@ export function GraffiticodeAuthProvider({ children }: { children: React.ReactNo
       setBootstrapPhase("done");
     })();
   }, [firebaseUserStatus, firebaseUser, bootstrapPhase, auth]);
-
-  // Single sign-out: if this browser has an SSO-backed session but the shared
-  // .graffiticode.org cookie is gone (the user signed out on a sibling app),
-  // drop the local Firebase session too. Polls on an interval (so an open tab
-  // signs out without needing focus) plus on focus/visibility for snappier
-  // response. Skipped right after a fresh cookie write (avoids racing a sign-in)
-  // and for sessions that never went through SSO (legacy sessions).
-  useEffect(() => {
-    if (!firebaseUser) return;
-    let cancelled = false;
-    const check = async () => {
-      if (!isSsoActive() || recentlyWroteSso()) return;
-      const present = await ssoSessionPresent();
-      if (!cancelled && !present) {
-        clearSsoSession();
-        try {
-          await signOut(auth);
-        } catch (err) {
-          console.error("[sso] remote sign-out failed", err);
-        }
-      }
-    };
-    check();
-    const interval = setInterval(check, 15000);
-    const onFocus = () => check();
-    const onVisible = () => {
-      if (document.visibilityState === "visible") check();
-    };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [firebaseUser, auth]);
 
   const ready = firebaseUserStatus !== "loading" && (firebaseUser != null || bootstrapPhase === "done");
 
