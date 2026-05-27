@@ -130,9 +130,10 @@ export function GraffiticodeAuthProvider({ children }: { children: React.ReactNo
 
   // Single sign-out: if this browser has an SSO-backed session but the shared
   // .graffiticode.org cookie is gone (the user signed out on a sibling app),
-  // drop the local Firebase session too. Runs on load and when the tab regains
-  // focus/visibility. Skipped right after a fresh cookie write (avoids racing a
-  // sign-in) and for sessions that never went through SSO (legacy sessions).
+  // drop the local Firebase session too. Polls on an interval (so an open tab
+  // signs out without needing focus) plus on focus/visibility for snappier
+  // response. Skipped right after a fresh cookie write (avoids racing a sign-in)
+  // and for sessions that never went through SSO (legacy sessions).
   useEffect(() => {
     if (!firebaseUser) return;
     let cancelled = false;
@@ -149,6 +150,7 @@ export function GraffiticodeAuthProvider({ children }: { children: React.ReactNo
       }
     };
     check();
+    const interval = setInterval(check, 15000);
     const onFocus = () => check();
     const onVisible = () => {
       if (document.visibilityState === "visible") check();
@@ -157,6 +159,7 @@ export function GraffiticodeAuthProvider({ children }: { children: React.ReactNo
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
+      clearInterval(interval);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
     };
