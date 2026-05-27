@@ -4,12 +4,12 @@ import { useCallback } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useAuth } from "reactfire";
 import { signOut as firebaseSignOut } from "firebase/auth";
-import { clearSsoSession } from "./sso-client";
+import { suppressSsoBootstrap } from "./sso-client";
 
-// Full sign-out: clears the Privy session and the shared SSO cookie as well as
-// Firebase, and does NOT redirect (the caller owns the post-sign-out UI). The
-// shared useGraffiticodeAuth().signOut clears the SSO cookie + Firebase and
-// hard-redirects to "/".
+// Full sign-out: clears the Privy session and Firebase, and does NOT redirect
+// (the caller owns the post-sign-out UI). Sign-out is local — it suppresses this
+// tab's auto-bootstrap but leaves the shared global-session cookie intact, so
+// other surfaces stay signed in and freshly opened tabs can still SSO in.
 export function useSignOut() {
   const { logout } = usePrivy();
   const auth = useAuth();
@@ -19,7 +19,7 @@ export function useSignOut() {
     } catch {
       // Privy may already be logged out; ignore.
     }
-    await clearSsoSession();
+    suppressSsoBootstrap();
     await firebaseSignOut(auth);
   }, [logout, auth]);
 }

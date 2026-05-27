@@ -12,4 +12,4 @@ export { useSignInWithEthereum } from "./use-ethereum";
 export { useSignOut } from "./use-sign-out";
 export { client as authClient } from "./auth-client";
 export { apiFirebaseConfig } from "./firebase-config";
-export { setSsoSession, clearSsoSession, bootstrapSsoSession } from "./sso-client";
+export { setSsoSession, bootstrapSsoSession } from "./sso-client";

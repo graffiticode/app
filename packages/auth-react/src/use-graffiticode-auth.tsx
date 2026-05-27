@@ -5,7 +5,13 @@ import useSWR from "swr";
 import { useSignInWithEthereum } from "./use-ethereum";
 import { useAuth, useUser } from "reactfire";
 import { signInWithCustomToken, signOut } from "firebase/auth";
-import { setSsoSession, clearSsoSession, bootstrapSsoSession } from "./sso-client";
+import {
+  setSsoSession,
+  bootstrapSsoSession,
+  suppressSsoBootstrap,
+  clearSsoSuppress,
+  isSsoBootstrapSuppressed,
+} from "./sso-client";
 
 type PendingEthereumSignup = {
   needsSignupConfirm: true;
@@ -101,10 +107,18 @@ export function GraffiticodeAuthProvider({ children }: { children: React.ReactNo
   useEffect(() => {
     if (firebaseUserStatus === "loading") return;
     if (firebaseUser) {
+      // Signed in → this tab is no longer in a suppressed (signed-out) state.
+      clearSsoSuppress();
       if (bootstrapPhase !== "done") setBootstrapPhase("done");
       return;
     }
     if (bootstrapPhase !== "pending") return;
+    // Respect an explicit sign-out in this tab: don't auto-bootstrap back in
+    // from the still-present global-session cookie.
+    if (isSsoBootstrapSuppressed()) {
+      setBootstrapPhase("done");
+      return;
+    }
     setBootstrapPhase("running");
     (async () => {
       const token = await bootstrapSsoSession();
@@ -122,7 +136,10 @@ export function GraffiticodeAuthProvider({ children }: { children: React.ReactNo
   const ready = firebaseUserStatus !== "loading" && (firebaseUser != null || bootstrapPhase === "done");
 
   const handleSignOut = useCallback(async () => {
-    await clearSsoSession();
+    // Local sign-out: suppress this tab's auto-bootstrap but leave the shared
+    // global-session cookie intact so other surfaces stay signed in and freshly
+    // opened tabs can still SSO in.
+    suppressSsoBootstrap();
     await signOut(auth);
     if (typeof window !== "undefined") {
       window.location.href = "/";

@@ -5,10 +5,13 @@
 // is shared across *.graffiticode.org. All are best-effort: SSO must never
 // block or break a normal sign-in/out, so failures are logged and swallowed.
 //
-// Scope: single sign-IN only. A sign-in sets the shared cookie; a sibling app
-// with no local session bootstraps from it. Sign-out is intentionally local —
-// it clears this surface's session (and the shared cookie so this surface won't
-// immediately re-bootstrap) but never signs out other surfaces.
+// Model: the shared cookie is a *persistent global session* — a sign-in sets it
+// and any surface bootstraps a local session from it. Sign-out is local and does
+// NOT clear the cookie; instead it suppresses auto-bootstrap for the current tab
+// (sessionStorage, per-tab) so that tab stays signed out, while other surfaces
+// and freshly opened tabs still bootstrap from the global session.
+
+const SUPPRESS_KEY = "graffiticode:sso:suppress";
 
 // Stores the refresh token in the shared SSO cookie after a successful sign-in.
 export async function setSsoSession(refreshToken: string | undefined | null): Promise<void> {
@@ -21,15 +24,6 @@ export async function setSsoSession(refreshToken: string | undefined | null): Pr
     });
   } catch (err) {
     console.error("[sso] setSsoSession failed", err);
-  }
-}
-
-// Clears the shared SSO cookie on sign-out so this surface doesn't re-bootstrap.
-export async function clearSsoSession(): Promise<void> {
-  try {
-    await fetch("/api/sso/session", { method: "DELETE" });
-  } catch (err) {
-    console.error("[sso] clearSsoSession failed", err);
   }
 }
 
@@ -46,5 +40,32 @@ export async function bootstrapSsoSession(): Promise<string | null> {
   } catch (err) {
     console.error("[sso] bootstrapSsoSession failed", err);
     return null;
+  }
+}
+
+// Marks the current tab as having explicitly signed out, so it doesn't
+// auto-bootstrap back in from the still-present global-session cookie. Per-tab
+// (sessionStorage) so other tabs/surfaces are unaffected.
+export function suppressSsoBootstrap(): void {
+  try {
+    if (typeof window !== "undefined") sessionStorage.setItem(SUPPRESS_KEY, "1");
+  } catch {
+    // sessionStorage unavailable — non-fatal.
+  }
+}
+
+export function clearSsoSuppress(): void {
+  try {
+    if (typeof window !== "undefined") sessionStorage.removeItem(SUPPRESS_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function isSsoBootstrapSuppressed(): boolean {
+  try {
+    return typeof window !== "undefined" && sessionStorage.getItem(SUPPRESS_KEY) === "1";
+  } catch {
+    return false;
   }
 }
