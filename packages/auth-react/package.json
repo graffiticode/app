@@ -1,6 +1,6 @@
 {
   "name": "@graffiticode/auth-react",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Shared Graffiticode auth: SIWE (wallet) + Privy email sign-in + Firebase token exchange + cross-app SSO. Consumed by app.graffiticode.org and console.graffiticode.org.",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
