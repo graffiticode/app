@@ -45,7 +45,9 @@ steps:
       - '--port=8080'
       # Cross-app SSO: scope the shared refresh-token cookie to the parent domain
       # so console.graffiticode.org and app.graffiticode.org share one sign-in.
-      - '--set-env-vars=SSO_COOKIE_DOMAIN=.graffiticode.org'
+      # Use --update-env-vars (additive); --set-env-vars would wipe everything
+      # else set out-of-band on the service.
+      - '--update-env-vars=SSO_COOKIE_DOMAIN=.graffiticode.org'
       # Server secrets sourced from Secret Manager (create these once; see README/notes).
       - '--set-secrets=INTERNAL_API_KEY=INTERNAL_API_KEY:latest,PRIVY_APP_SECRET=PRIVY_APP_SECRET:latest'
     id: Deploy
