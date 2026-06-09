@@ -40,10 +40,9 @@ steps:
       - '--allow-unauthenticated'
       - '--memory=1Gi'
       - '--cpu=1'
-      # Keep one warm instance: app serves /form/<itemId> + /api/form/resolve
-      # for www's public showcase embeds; min-instances=0 made first loads pay a
-      # multi-second cold start (api + language servers are already warm).
-      - '--min-instances=1'
+      # min-instances is managed manually on the service (service-level minScale),
+      # so it's intentionally not set here — omitting the flag makes deploys
+      # preserve the manual value instead of clobbering it.
       - '--max-instances=10'
       - '--port=8080'
       # Cross-app SSO: scope the shared refresh-token cookie to the parent domain
