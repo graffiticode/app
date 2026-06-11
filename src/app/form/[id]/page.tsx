@@ -20,7 +20,7 @@ type Resolved = {
 
 function FullScreen({ children }: { children: React.ReactNode }) {
   return (
-    <main className="flex min-h-full flex-col items-center justify-center gap-3 p-8 text-center">
+    <main className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
       {children}
     </main>
   );
