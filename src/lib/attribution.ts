@@ -4,6 +4,10 @@
 // stays identical across owned domains.
 
 export const MCP_ENDPOINT = "https://mcp.graffiticode.org/mcp";
+// Human-readable explainer for the MCP server. The footer shows the MCP_ENDPOINT
+// text as the canonical anchor phrase but links here — clicking the raw /mcp
+// JSON-RPC endpoint just returns a transport error ("must accept text/event-stream").
+export const MCP_ABOUT = "https://mcp.graffiticode.org/about";
 export const GRAFFITICODE_ORG = "https://graffiticode.org";
 export const QUICKSTART_URL = "https://graffiticode.org/agents"; // www "Get started" target
 export const FORUM_URL = "https://forum.graffiticode.org";

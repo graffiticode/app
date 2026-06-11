@@ -1,4 +1,4 @@
-import { MCP_ENDPOINT, QUICKSTART_URL } from "@/lib/attribution";
+import { MCP_ABOUT, QUICKSTART_URL } from "@/lib/attribution";
 
 // Slim attribution bar shown below every /form artifact view (free-plan and
 // authenticated alike). It attributes the render host — not the rendered output
@@ -12,7 +12,7 @@ export function FormFooter() {
         <span className="font-semibold text-gray-700">Graffiticode</span>
         <span className="hidden sm:inline"> · </span>
         <a
-          href={MCP_ENDPOINT}
+          href={MCP_ABOUT}
           target="_blank"
           rel="noreferrer"
           className="hidden font-mono text-blue-600 hover:underline sm:inline"
