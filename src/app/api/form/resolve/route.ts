@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authFromRequest } from "@/server/request-auth";
 import { resolveFormTarget, evaluateAccess } from "@/server/resolvers";
+import { logArtifactView } from "@/server/events";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,13 @@ export async function GET(req: NextRequest) {
     allowed: access.allowed,
     reason: access.allowed ? null : access.reason,
   });
+
+  // Funnel signal: an artifact page was opened. `item` prefers the resolved
+  // free-plan item doc id (what view_url links to, so the report can join it to
+  // a session); falls back to the raw URL id for a rare raw-task direct link.
+  // The page polls this route every ~8s for item-backed forms, so the report
+  // dedups by session — emit unconditionally here.
+  logArtifactView({ item: target.itemId ?? id, authed: !!auth, allowed: access.allowed });
 
   if (access.allowed) {
     return NextResponse.json({
