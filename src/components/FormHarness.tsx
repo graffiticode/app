@@ -136,6 +136,9 @@ export function FormHarness({
           title="form"
           className="h-full w-full"
           style={{ border: "none" }}
+          // Lets the embedded view's "Copy" button reach the async Clipboard API from this
+          // cross-origin iframe (so teachers can copy the question / answer key as rich text).
+          allow="clipboard-write"
           // The form view may signal readiness via a postMessage type we don't
           // recognize, so clear the overlay once the document itself loads.
           onLoad={() => setIsLoading(false)}
