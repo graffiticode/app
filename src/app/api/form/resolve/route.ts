@@ -32,12 +32,21 @@ export async function GET(req: NextRequest) {
     reason: access.allowed ? null : access.reason,
   });
 
-  // Funnel signal: an artifact page was opened. `item` prefers the resolved
-  // free-plan item doc id (what view_url links to, so the report can join it to
-  // a session); falls back to the raw URL id for a rare raw-task direct link.
-  // The page polls this route every ~8s for item-backed forms, so the report
-  // dedups by session — emit unconditionally here.
-  logArtifactView({ item: target.itemId ?? id, authed: !!auth, allowed: access.allowed });
+  // Funnel signal: an artifact page was OPENED — one event per page view, not
+  // one per resolve. `item` prefers the resolved free-plan item doc id (what
+  // view_url links to, so the report can join it to a session); falls back to
+  // the raw URL id for a rare raw-task direct link.
+  //
+  // Gated on `view=1`, which the page sends only on its first resolve. This
+  // route is polled every ~8s for item-backed forms, so emitting on every call
+  // made "views" a function of how long a tab stayed open: one page left up for
+  // an hour produced ~400 events, and a week with 8 items read as 7,369 views.
+  // The previous note here assumed "the report dedups by session" — only
+  // scripts/mcp-funnel-report.ts does, by joining item -> session. The console's
+  // hourly digest counts raw events, so the inflation was live.
+  if (req.nextUrl.searchParams.get("view") === "1") {
+    logArtifactView({ item: target.itemId ?? id, authed: !!auth, allowed: access.allowed });
+  }
 
   if (access.allowed) {
     return NextResponse.json({

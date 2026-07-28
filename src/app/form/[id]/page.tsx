@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
 import { useGraffiticodeAuth } from "@graffiticode/auth-react";
@@ -31,6 +32,13 @@ export default function FormByIdPage() {
   const id = Array.isArray(params.id) ? params.id[0] : (params.id as string);
   const { user, loading } = useGraffiticodeAuth();
 
+  // Marks the FIRST resolve of this page view. The route counts an artifact_view
+  // only when it's set, so the 8s poll below — plus focus/reconnect
+  // revalidations and the refetch when auth resolves and changes the SWR key —
+  // don't each register as a view. A ref rather than state: flipping it must not
+  // re-render, and it resets on remount, which genuinely IS a new view.
+  const firstResolve = useRef(true);
+
   // Poll the resolve so an item whose task changed elsewhere (e.g. the MCP
   // server republished it) re-resolves and reloads the form. Only item-backed
   // forms poll — a raw task id is immutable, so refreshInterval is 0 for it.
@@ -38,9 +46,12 @@ export default function FormByIdPage() {
     loading || !id ? null : ["form-resolve", id, !!user],
     async (): Promise<Resolved> => {
       const token = user ? await user.getToken() : null;
-      const res = await fetch(`/api/form/resolve?id=${encodeURIComponent(id)}`, {
-        headers: token ? { Authorization: token } : {},
-      });
+      const isView = firstResolve.current;
+      firstResolve.current = false;
+      const res = await fetch(
+        `/api/form/resolve?id=${encodeURIComponent(id)}${isView ? "&view=1" : ""}`,
+        { headers: token ? { Authorization: token } : {} },
+      );
       const body = await res.json();
       return { ...body, accessToken: token };
     },
