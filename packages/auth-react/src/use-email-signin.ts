@@ -69,6 +69,25 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
     userRef.current = user;
   }, [user]);
 
+  // Privy's imperative functions (createWallet, signMessage) are rebuilt every
+  // render as closures over THAT render's authenticated/user — verified in the
+  // bundle: `createWallet: async e => { if (!m || !v) throw ...; return e$(v, ...) }`
+  // is an inline property of the per-render context object. A promise chain
+  // started from the pre-login render therefore holds a frozen pre-login copy
+  // (authenticated=false, user=null baked in) that can NEVER succeed — which is
+  // why a manual second click always worked (fresh render, fresh closure) while
+  // any in-flow retry of the captured reference was retrying a constant. Keep
+  // the latest copies in refs and call through them: the retry loop yields
+  // between attempts, React re-renders, this effect refreshes the refs, and the
+  // next attempt uses a closure that can succeed. (No dep array on purpose —
+  // refresh on every render.)
+  const createWalletRef = useRef(createWallet);
+  const signMessageRef = useRef(privySignMessage);
+  useEffect(() => {
+    createWalletRef.current = createWallet;
+    signMessageRef.current = privySignMessage;
+  });
+
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -113,12 +132,15 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
   }, []);
 
   /**
-   * Privy answers MUST_BE_AUTHENTICATED — "User must be authenticated before
-   * {creating,signing with} a Privy wallet" — while its session is still settling
-   * after login. It resolves on its own within a second or two, so retry rather than
-   * trying to predict it: the hook's `ready`/`authenticated`/`user` refs are updated
-   * by an effect, so they lag a render and, after a logout()+login() cycle in one
-   * page session, can read stale TRUE and pass a gate that should have waited.
+   * Retry Privy's MUST_BE_AUTHENTICATED rejection — "User must be authenticated
+   * before {creating,signing with} a Privy wallet".
+   *
+   * A retry only helps if each attempt reads FRESH state: callers must invoke
+   * through `createWalletRef`/`signMessageRef`, never a captured hook function.
+   * The captured copy is a per-render closure; from the pre-login render it has
+   * authenticated=false/user=null frozen in, and retrying it is retrying a
+   * constant. The sleeps below yield to React, the latest-ref effect refreshes
+   * the refs, and the next attempt gets a closure that can succeed.
    */
   const withPrivyRetry = useCallback(
     async <T,>(fn: () => Promise<T>, label: string): Promise<T> => {
@@ -208,12 +230,12 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
       let created = false;
       if (!address) {
         try {
-          // Retried, not gated. Privy rejects with MUST_BE_AUTHENTICATED while its
-          // session is still settling, and readiness cannot be predicted from the
-          // hook's refs — an effect updates them a render late, so after a
-          // logout()+login() they can read stale TRUE and wave us through early.
-          // Waiting for the condition to actually hold is the only reliable form.
-          address = (await withPrivyRetry(() => createWallet(), "createWallet")).address;
+          // Called through the REF, not the captured `createWallet`: the captured
+          // copy is the pre-login render's closure, which rejects
+          // MUST_BE_AUTHENTICATED forever (see the ref declarations above). Each
+          // retry re-reads the ref, so a post-login attempt gets a closure that
+          // can actually succeed.
+          address = (await withPrivyRetry(() => createWalletRef.current(), "createWallet")).address;
           created = true;
         } catch (err: any) {
           if (!/already.*wallet/i.test(err?.message || "")) {
@@ -238,7 +260,7 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
       }
       return connected;
     },
-    [createWallet, waitForConnectedWallet, waitForAnyEmbeddedWallet, embeddedWalletAddress],
+    [withPrivyRetry, waitForConnectedWallet, waitForAnyEmbeddedWallet, embeddedWalletAddress],
   );
 
   /**
@@ -307,12 +329,14 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
         console.warn("personal_sign via the wallet provider failed; falling back", err);
       }
 
+      // Through the ref, for the same reason as createWallet: the captured
+      // `privySignMessage` is a pre-login closure that rejects forever.
       return await withPrivyRetry(
-        () => privySignMessage(message, { showWalletUIs: false }, wallet.address),
+        () => signMessageRef.current(message, { showWalletUIs: false }, wallet.address),
         "signMessage",
       );
     },
-    [privySignMessage, withPrivyRetry],
+    [withPrivyRetry],
   );
 
   const persistSignInEmailDoc = useCallback(
