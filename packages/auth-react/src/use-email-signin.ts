@@ -19,7 +19,6 @@ import { setSsoSession } from "./sso-client";
 
 const LOGIN_COMPLETE_TIMEOUT_MS = 30_000;
 const CONNECTED_WALLET_TIMEOUT_MS = 20_000;
-const PRIVY_READY_TIMEOUT_MS = 15_000;
 const SIGN_RETRY_TIMEOUT_MS = 15_000;
 const POLL_MS = 150;
 
@@ -39,10 +38,7 @@ type ResolveResponse =
 export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
   const { allowSignup = false } = options;
   const auth = useAuth();
-  // `ready`/`authenticated` matter: Privy's own signMessage refuses with
-  // "User must be authenticated before signing with a Privy wallet" when its
-  // in-memory session isn't settled, which is not something onComplete guarantees.
-  const { logout, user, getAccessToken, ready, authenticated } = usePrivy();
+  const { logout, user, getAccessToken } = usePrivy();
   const { createWallet } = useCreateWallet();
   const { wallets } = useWallets();
   const { signMessage: privySignMessage } = useSignMessage();
@@ -72,12 +68,6 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
   useEffect(() => {
     userRef.current = user;
   }, [user]);
-  const readyRef = useRef(ready);
-  const authenticatedRef = useRef(authenticated);
-  useEffect(() => {
-    readyRef.current = ready;
-    authenticatedRef.current = authenticated;
-  }, [ready, authenticated]);
 
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -122,6 +112,36 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
     });
   }, []);
 
+  /**
+   * Privy answers MUST_BE_AUTHENTICATED — "User must be authenticated before
+   * {creating,signing with} a Privy wallet" — while its session is still settling
+   * after login. It resolves on its own within a second or two, so retry rather than
+   * trying to predict it: the hook's `ready`/`authenticated`/`user` refs are updated
+   * by an effect, so they lag a render and, after a logout()+login() cycle in one
+   * page session, can read stale TRUE and pass a gate that should have waited.
+   */
+  const withPrivyRetry = useCallback(
+    async <T,>(fn: () => Promise<T>, label: string): Promise<T> => {
+      const start = Date.now();
+      let lastErr: any;
+      for (;;) {
+        try {
+          return await fn();
+        } catch (err: any) {
+          lastErr = err;
+          if (!/must be authenticated/i.test(err?.message || "")) throw err;
+          if (Date.now() - start >= SIGN_RETRY_TIMEOUT_MS) break;
+          await new Promise((r) => setTimeout(r, POLL_MS * 4));
+        }
+      }
+      console.error(`Privy never became ready for ${label}:`, lastErr);
+      throw new Error(
+        "Your wallet isn't ready yet. Please request a new code and try again.",
+      );
+    },
+    [],
+  );
+
   const waitForConnectedWallet = useCallback(
     async (address: string): Promise<ConnectedWallet | null> => {
       const target = address.toLowerCase();
@@ -149,28 +169,6 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
       await new Promise((r) => setTimeout(r, POLL_MS));
     }
     return null;
-  }, []);
-
-  /**
-   * Privy's session must be settled before we ask it to sign. All THREE conditions
-   * matter, and the user object is the one that actually bites: Privy's signMessage
-   * guards on `!authenticated || !user` and reports either as
-   * "User must be authenticated before signing with a Privy wallet". `authenticated`
-   * flips as soon as a token exists, while `user` is populated by a later fetch — so
-   * waiting only on `authenticated` returns during that window and signing fails with
-   * a message that blames auth when the session is fine.
-   *
-   * Polls rather than reading once, because the refs lag by a render.
-   */
-  const waitForPrivyReady = useCallback(async (): Promise<void> => {
-    const start = Date.now();
-    while (Date.now() - start < PRIVY_READY_TIMEOUT_MS) {
-      if (readyRef.current && authenticatedRef.current && userRef.current) return;
-      await new Promise((r) => setTimeout(r, POLL_MS));
-    }
-    throw new Error(
-      "Privy session did not finish loading. Please request a new code and try again.",
-    );
   }, []);
 
   /**
@@ -210,7 +208,12 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
       let created = false;
       if (!address) {
         try {
-          address = (await createWallet()).address;
+          // Retried, not gated. Privy rejects with MUST_BE_AUTHENTICATED while its
+          // session is still settling, and readiness cannot be predicted from the
+          // hook's refs — an effect updates them a render late, so after a
+          // logout()+login() they can read stale TRUE and wave us through early.
+          // Waiting for the condition to actually hold is the only reliable form.
+          address = (await withPrivyRetry(() => createWallet(), "createWallet")).address;
           created = true;
         } catch (err: any) {
           if (!/already.*wallet/i.test(err?.message || "")) {
@@ -304,25 +307,12 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
         console.warn("personal_sign via the wallet provider failed; falling back", err);
       }
 
-      const start = Date.now();
-      let lastErr: any;
-      for (;;) {
-        try {
-          return await privySignMessage(message, { showWalletUIs: false }, wallet.address);
-        } catch (err: any) {
-          lastErr = err;
-          // Only the proxy-not-ready rejection is worth retrying; anything else is real.
-          if (!/must be authenticated/i.test(err?.message || "")) throw err;
-          if (Date.now() - start >= SIGN_RETRY_TIMEOUT_MS) break;
-          await new Promise((r) => setTimeout(r, POLL_MS * 4));
-        }
-      }
-      console.error("Embedded wallet never became signable:", lastErr);
-      throw new Error(
-        "Your embedded wallet isn't ready to sign yet. Please request a new code and try again.",
+      return await withPrivyRetry(
+        () => privySignMessage(message, { showWalletUIs: false }, wallet.address),
+        "signMessage",
       );
     },
-    [privySignMessage],
+    [privySignMessage, withPrivyRetry],
   );
 
   const persistSignInEmailDoc = useCallback(
@@ -382,10 +372,11 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
 
   const createAccountFromCurrentPrivySession = useCallback(
     async (email: string, privyUser: PrivyUser | null) => {
-      // Before touching wallets: a null SDK user breaks wallet selection the same
-      // way it breaks signing, and once it has loaded userRef is a usable fallback
-      // for the object onComplete handed us.
-      await waitForPrivyReady();
+      // No readiness gate here: it was one, and it made things worse. The refs it
+      // polled lag by a render, so after a logout()+login() in the same page session
+      // they read stale TRUE and the gate passed early — turning a retryable
+      // "not ready yet" into a hard failure. createEmbeddedWallet and signNonce both
+      // retry the real rejection instead.
       const wallet = await createEmbeddedWallet(privyUser ?? userRef.current);
       const accountAddress = wallet.address;
       const address = stripHexPrefix(accountAddress);
@@ -410,7 +401,7 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
         // Privy session no longer needed once Firebase has taken over.
       }
     },
-    [auth, createEmbeddedWallet, waitForPrivyReady, signNonce, recordSignInIdentity, logout],
+    [auth, createEmbeddedWallet, signNonce, recordSignInIdentity, logout],
   );
 
   const verifyAndSignIn = useCallback(
@@ -460,9 +451,13 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
         // produced an empty browser console and had to be diagnosed by hand.
         console.error("Email sign-in failed:", err);
         const msg = err?.message || "Failed to verify code";
+        // The code is spent as soon as privyLoginWithCode resolves, even when a
+        // later step fails — so a retry with it can only ever say "Invalid email
+        // and code combination". Say what to do next, not "you already used it":
+        // from the user's side they just typed it for the first time.
         setCodeError(
           codeConsumed && !/new code/i.test(msg)
-            ? `${msg} That code has been used — request a new one.`
+            ? `${msg} Please request a new code before trying again.`
             : msg,
         );
         throw err;
