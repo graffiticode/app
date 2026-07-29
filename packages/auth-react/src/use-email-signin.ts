@@ -150,15 +150,26 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
     return null;
   }, []);
 
-  // Privy's session must be settled before we ask it to sign. Polls rather than
-  // reading once, because the refs lag by a render.
+  /**
+   * Privy's session must be settled before we ask it to sign. All THREE conditions
+   * matter, and the user object is the one that actually bites: Privy's signMessage
+   * guards on `!authenticated || !user` and reports either as
+   * "User must be authenticated before signing with a Privy wallet". `authenticated`
+   * flips as soon as a token exists, while `user` is populated by a later fetch — so
+   * waiting only on `authenticated` returns during that window and signing fails with
+   * a message that blames auth when the session is fine.
+   *
+   * Polls rather than reading once, because the refs lag by a render.
+   */
   const waitForPrivyReady = useCallback(async (): Promise<void> => {
     const start = Date.now();
     while (Date.now() - start < PRIVY_READY_TIMEOUT_MS) {
-      if (readyRef.current && authenticatedRef.current) return;
+      if (readyRef.current && authenticatedRef.current && userRef.current) return;
       await new Promise((r) => setTimeout(r, POLL_MS));
     }
-    throw new Error("Privy session did not become ready. Please request a new code.");
+    throw new Error(
+      "Privy session did not finish loading. Please request a new code and try again.",
+    );
   }, []);
 
   /**
@@ -315,13 +326,14 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
 
   const createAccountFromCurrentPrivySession = useCallback(
     async (email: string, privyUser: PrivyUser | null) => {
-      const wallet = await createEmbeddedWallet(privyUser);
+      // Before touching wallets: a null SDK user breaks wallet selection the same
+      // way it breaks signing, and once it has loaded userRef is a usable fallback
+      // for the object onComplete handed us.
+      await waitForPrivyReady();
+      const wallet = await createEmbeddedWallet(privyUser ?? userRef.current);
       const accountAddress = wallet.address;
       const address = stripHexPrefix(accountAddress);
       const nonce = await client.ethereum.getNonce({ address });
-      // Privy refuses to sign while its session is unsettled, and reports that as
-      // "User must be authenticated…" even though the tokens are present.
-      await waitForPrivyReady();
       const sigRaw = await privySignMessage(
         `Nonce: ${nonce}`,
         { showWalletUIs: false },
