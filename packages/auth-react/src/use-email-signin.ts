@@ -20,6 +20,7 @@ import { setSsoSession } from "./sso-client";
 const LOGIN_COMPLETE_TIMEOUT_MS = 30_000;
 const CONNECTED_WALLET_TIMEOUT_MS = 20_000;
 const PRIVY_READY_TIMEOUT_MS = 15_000;
+const SIGN_RETRY_TIMEOUT_MS = 15_000;
 const POLL_MS = 150;
 
 type LoginCompleteWaiter = {
@@ -269,6 +270,61 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
     [getAccessToken],
   );
 
+  /**
+   * Sign the SIWE nonce with the account's embedded wallet.
+   *
+   * Privy's `useSignMessage` guards on the embedded wallet PROXY being up and
+   * reports a proxy that isn't ready as "User must be authenticated before signing
+   * with a Privy wallet" — a message about auth for a condition that has nothing to
+   * do with auth. Two distinct ways that bites:
+   *
+   *  - First-ever sign-up: `createWallet()` kicks off `initializeWalletProxy`, and
+   *    signing can beat it. Retrying works, which is why the old flow appeared to
+   *    "fail once then succeed on the second try".
+   *  - Any LATER sign-in: `createWallet()` throws EMBEDDED_WALLET_ALREADY_EXISTS
+   *    *before* it reaches `initializeWalletProxy`, so nothing ever initializes it
+   *    and no amount of retrying helps.
+   *
+   * So prefer the wallet's own EIP-1193 provider, whose rpc path initializes the
+   * proxy lazily instead of rejecting; fall back to `useSignMessage` with a bounded
+   * retry for the race.
+   */
+  const signNonce = useCallback(
+    async (wallet: ConnectedWallet, message: string): Promise<string> => {
+      try {
+        const provider: any = await (wallet as any).getEthereumProvider?.();
+        if (provider?.request) {
+          const sig = await provider.request({
+            method: "personal_sign",
+            params: [message, wallet.address],
+          });
+          if (typeof sig === "string" && sig) return sig;
+        }
+      } catch (err) {
+        console.warn("personal_sign via the wallet provider failed; falling back", err);
+      }
+
+      const start = Date.now();
+      let lastErr: any;
+      for (;;) {
+        try {
+          return await privySignMessage(message, { showWalletUIs: false }, wallet.address);
+        } catch (err: any) {
+          lastErr = err;
+          // Only the proxy-not-ready rejection is worth retrying; anything else is real.
+          if (!/must be authenticated/i.test(err?.message || "")) throw err;
+          if (Date.now() - start >= SIGN_RETRY_TIMEOUT_MS) break;
+          await new Promise((r) => setTimeout(r, POLL_MS * 4));
+        }
+      }
+      console.error("Embedded wallet never became signable:", lastErr);
+      throw new Error(
+        "Your embedded wallet isn't ready to sign yet. Please request a new code and try again.",
+      );
+    },
+    [privySignMessage],
+  );
+
   const persistSignInEmailDoc = useCallback(
     async (uid: string, idToken: string, email: string) => {
       try {
@@ -334,11 +390,7 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
       const accountAddress = wallet.address;
       const address = stripHexPrefix(accountAddress);
       const nonce = await client.ethereum.getNonce({ address });
-      const sigRaw = await privySignMessage(
-        `Nonce: ${nonce}`,
-        { showWalletUIs: false },
-        accountAddress,
-      );
+      const sigRaw = await signNonce(wallet, `Nonce: ${nonce}`);
       const signature = stripHexPrefix(sigRaw);
       const { firebaseCustomToken, refresh_token } = await client.ethereum.authenticate({
         address,
@@ -358,7 +410,7 @@ export function useEmailSignIn(options: UseEmailSignInOptions = {}) {
         // Privy session no longer needed once Firebase has taken over.
       }
     },
-    [auth, createEmbeddedWallet, waitForPrivyReady, privySignMessage, recordSignInIdentity, logout],
+    [auth, createEmbeddedWallet, waitForPrivyReady, signNonce, recordSignInIdentity, logout],
   );
 
   const verifyAndSignIn = useCallback(
